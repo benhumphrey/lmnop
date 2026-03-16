@@ -1,20 +1,36 @@
 import { loadFromGist, getGistId } from './gist.js';
 
 export const PALETTE = [
-  '#7A3A0F', '#B86A10', '#8A7A10', '#4A7A20', '#1A5C6B',
-  '#2A3A7A', '#4A2A7A', '#7A2A5A', '#7A2A3A', '#6A3020',
-  '#5A5040', '#3A5A3A', '#1A4A5A', '#1A2A6A', '#3A1A6A',
-  '#6A1A4A', '#6A2A2A', '#4A3A20', '#2A4A2A', '#1A3A4A',
-  '#2A1A4A',
+  '#b47e64', // Terra
+  '#b88347', // Amber
+  '#b69e3e', // Ochre
+  '#7ca456', // Olive
+  '#45927c', // Teal
+  '#567cb8', // Slate blue
+  '#7f6ab9', // Lavender
+  '#a85d95', // Plum
+  '#b85670', // Rose
+  '#b95b5b', // Brick
+  '#7c9268', // Sage
+  '#458796', // Cerulean
+  '#8a769e', // Grape
+  '#a07946', // Caramel
+  '#c96e54', // Grapefruit
+  '#86a046', // Citrus
+  '#427065', // Spearmint
+  '#76809e', // Steel
+  '#8e677a', // Berry
+  '#777f66', // Fern
+  '#9e6357', // Salmon
 ];
 
 export const DEFAULT_RECIPES = [
   {
     id: 'sour-grape',
     name: 'Sour Grape',
-    accent: '#7A3A0F',
+    accent: '#8a769e',
     ingredients: [
-      { name: 'Sodium Chloride',   grams40: 100.0, isBase: true },
+      { name: 'Sodium Chloride',    grams40: 100.0, isBase: true },
       { name: 'Potassium Chloride', grams40: 15.4,  isBase: true },
       { name: 'Magnesium Malate',   grams40: 15.6,  isBase: true },
       { name: 'Malic Acid',         grams40: 19.2 },
@@ -26,7 +42,7 @@ export const DEFAULT_RECIPES = [
   {
     id: 'grapefruit',
     name: 'Grapefruit',
-    accent: '#B86A10',
+    accent: '#c96e54',
     ingredients: [
       { name: 'Sodium Chloride',    grams40: 100.0,  isBase: true },
       { name: 'Potassium Chloride', grams40: 15.32,  isBase: true },
@@ -39,15 +55,15 @@ export const DEFAULT_RECIPES = [
   {
     id: 'lemon',
     name: 'Lemon',
-    accent: '#8A7A10',
+    accent: '#b69e3e',
     ingredients: [
-      { name: 'Sodium Chloride',    grams40: 100.0, isBase: true },
-      { name: 'Potassium Chloride', grams40: 15.32, isBase: true },
-      { name: 'Magnesium Malate',   grams40: 15.6,  isBase: true },
-      { name: 'Citric Acid',        grams40: 32.0 },
+      { name: 'Sodium Chloride',     grams40: 100.0, isBase: true },
+      { name: 'Potassium Chloride',  grams40: 15.32, isBase: true },
+      { name: 'Magnesium Malate',    grams40: 15.6,  isBase: true },
+      { name: 'Citric Acid',         grams40: 32.0 },
       { name: 'Lemon Flavor Powder', grams40: 56.0 },
-      { name: 'Lemon Juice Powder', grams40: 16.0 },
-      { name: 'Stevia Powder',      grams40: 2.4 },
+      { name: 'Lemon Juice Powder',  grams40: 16.0 },
+      { name: 'Stevia Powder',       grams40: 2.4 },
     ],
   },
 ];
@@ -81,14 +97,13 @@ export function saveToLocal(recipes) {
   } catch (_) {}
 }
 
-// On startup: try gist first (if we have a saved gist ID), fall back to localStorage
 export async function loadRecipes() {
   const gistId = getGistId();
   if (gistId) {
     try {
       const recipes = await loadFromGist(gistId);
       if (recipes) {
-        saveToLocal(recipes); // keep local in sync
+        saveToLocal(recipes);
         return recipes;
       }
     } catch (_) {}
