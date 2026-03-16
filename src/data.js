@@ -1,4 +1,8 @@
-import { loadFromGist, getGistId } from './gist.js';
+import { loadFromGist, getGistId, saveGistId } from './gist.js';
+
+// Public Gist ID — hardcoded so all devices can read recipes without a token.
+// This is set once when the owner first syncs. Safe to commit — the Gist is public read.
+export const PUBLIC_GIST_ID = '19be0d7457103e369d0df450a01c24a6';
 
 export const PALETTE = [
   '#D46E72', // Watermelon
@@ -27,7 +31,7 @@ export const DEFAULT_RECIPES = [
   {
     id: 'sour-grape',
     name: 'Sour Grape',
-    accent: '#B07EAC', // Blackberry
+    accent: '#B07EAC',
     ingredients: [
       { name: 'Sodium Chloride',    grams40: 100.0, isBase: true },
       { name: 'Potassium Chloride', grams40: 15.4,  isBase: true },
@@ -41,7 +45,7 @@ export const DEFAULT_RECIPES = [
   {
     id: 'grapefruit',
     name: 'Grapefruit',
-    accent: '#DC7048', // Grapefruit
+    accent: '#DC7048',
     ingredients: [
       { name: 'Sodium Chloride',    grams40: 100.0, isBase: true },
       { name: 'Potassium Chloride', grams40: 15.32, isBase: true },
@@ -54,7 +58,7 @@ export const DEFAULT_RECIPES = [
   {
     id: 'lemon',
     name: 'Lemon',
-    accent: '#BEA83C', // Lemon
+    accent: '#BEA83C',
     ingredients: [
       { name: 'Sodium Chloride',     grams40: 100.0, isBase: true },
       { name: 'Potassium Chloride',  grams40: 15.32, isBase: true },
@@ -97,15 +101,19 @@ export function saveToLocal(recipes) {
 }
 
 export async function loadRecipes() {
-  const gistId = getGistId();
-  if (gistId) {
-    try {
-      const recipes = await loadFromGist(gistId);
-      if (recipes) {
-        saveToLocal(recipes);
-        return recipes;
-      }
-    } catch (_) {}
-  }
+  // Always try the public Gist first — works on any device, no token needed.
+  // Seed localStorage gist_id if not already set.
+  const gistId = getGistId() || PUBLIC_GIST_ID;
+  if (!getGistId()) saveGistId(PUBLIC_GIST_ID);
+
+  try {
+    const recipes = await loadFromGist(gistId);
+    if (recipes) {
+      saveToLocal(recipes);
+      return recipes;
+    }
+  } catch (_) {}
+
+  // Fall back to localStorage, then hardcoded defaults
   return loadFromLocal();
 }
