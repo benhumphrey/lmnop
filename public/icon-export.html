@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>LMNOP Icon Export</title>
+  <style>
+    body { font-family: sans-serif; background: #2C2518; color: #FAF7F2; padding: 40px; }
+    canvas { display: block; margin: 20px 0; border-radius: 20px; }
+    button { margin: 8px 4px; padding: 10px 20px; background: #C8853A; border: none; color: white; border-radius: 6px; cursor: pointer; font-size: 14px; }
+    h2 { margin-top: 32px; color: #C8853A; }
+  </style>
+</head>
+<body>
+  <h1>LMNOP Icon Export</h1>
+  <p>Click the buttons to download each icon as PNG.</p>
+
+  <h2>512 × 512</h2>
+  <canvas id="c512" width="512" height="512"></canvas>
+  <button onclick="download('c512','icon-512.png')">Download icon-512.png</button>
+
+  <h2>192 × 192</h2>
+  <canvas id="c192" width="192" height="192"></canvas>
+  <button onclick="download('c192','icon-192.png')">Download icon-192.png</button>
+
+  <h2>180 × 180 (Apple Touch)</h2>
+  <canvas id="c180" width="180" height="180"></canvas>
+  <button onclick="download('c180','apple-touch-icon.png')">Download apple-touch-icon.png</button>
+
+  <script>
+    function drawIcon(canvas) {
+      const s = canvas.width;
+      const ctx = canvas.getContext('2d');
+      const cx = s / 2;
+      const cy = s / 2;
+
+      // Gradient background square
+      const grad = ctx.createLinearGradient(0, 0, 0, s);
+      grad.addColorStop(0, '#F4856A');
+      grad.addColorStop(1, '#B5244E');
+      ctx.fillStyle = grad;
+      ctx.fillRect(0, 0, s, s);
+
+      // Off-white circle — sized to comfortably contain both letter rows
+      const circleR = s * 0.44;
+      ctx.fillStyle = '#FAF7F2';
+      ctx.beginPath();
+      ctx.arc(cx, cy, circleR, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Letters in gradient color
+      const fontSize = Math.round(s * 0.355);
+      ctx.font = `900 ${fontSize}px "Arial Black", "Helvetica Neue", sans-serif`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'alphabetic';
+
+      const textGrad = ctx.createLinearGradient(0, 0, 0, s);
+      textGrad.addColorStop(0, '#F4856A');
+      textGrad.addColorStop(1, '#B5244E');
+      ctx.fillStyle = textGrad;
+
+      // Use measured metrics to center the two-line block precisely
+      const metrics = ctx.measureText('LM');
+      const textH = metrics.actualBoundingBoxAscent + metrics.actualBoundingBoxDescent;
+      const gap = fontSize * 0.12;
+      const blockH = textH * 2 + gap;
+
+      const blockTop = cy - blockH / 2;
+      const lmY = blockTop + metrics.actualBoundingBoxAscent;
+      const npY = lmY + textH + gap;
+
+      ctx.fillText('LM', cx, lmY);
+      ctx.fillText('NP', cx, npY);
+    }
+
+    function download(id, filename) {
+      const canvas = document.getElementById(id);
+      const a = document.createElement('a');
+      a.download = filename;
+      a.href = canvas.toDataURL('image/png');
+      a.click();
+    }
+
+    drawIcon(document.getElementById('c512'));
+    drawIcon(document.getElementById('c192'));
+    drawIcon(document.getElementById('c180'));
+  </script>
+</body>
+</html>
