@@ -1,19 +1,37 @@
-import { useState, useCallback, useMemo } from 'react';
-import { loadRecipes, saveRecipes, formatGrams, MOLAR_RATIOS, BASE_SERVINGS } from './data.js';
+import { useState, useCallback, useMemo, useEffect } from 'react';
+import { loadRecipes, saveToLocal, formatGrams, MOLAR_RATIOS, BASE_SERVINGS, DEFAULT_RECIPES } from './data.js';
+import { getToken, saveToGist, getGistId } from './gist.js';
 import RecipeModal from './RecipeModal.jsx';
+import AuthModal from './AuthModal.jsx';
 
 export default function App() {
-  const [recipes, setRecipes] = useState(() => loadRecipes());
-  const [selectedId, setSelectedId] = useState(() => loadRecipes()[0]?.id);
+  const [recipes, setRecipes] = useState(DEFAULT_RECIPES);
+  const [selectedId, setSelectedId] = useState(DEFAULT_RECIPES[0].id);
   const [servings, setServings] = useState(10);
   const [customServings, setCustomServings] = useState('');
   const [overrideIndex, setOverrideIndex] = useState(null);
   const [overrideValue, setOverrideValue] = useState(null);
   const [editingCell, setEditingCell] = useState(null);
   const [editText, setEditText] = useState('');
-  const [modal, setModal] = useState(null);
+  const [modal, setModal] = useState(null); // null | { mode: 'edit'|'new', recipe? }
+  const [showAuth, setShowAuth] = useState(false);
+  const [authedUser, setAuthedUser] = useState(null);
+  const [syncStatus, setSyncStatus] = useState('idle'); // idle | syncing | synced | error
+  const [loading, setLoading] = useState(true);
 
-  const recipe = useMemo(() => recipes.find(r => r.id === selectedId), [recipes, selectedId]);
+  // On mount: detect existing token + load recipes
+  useEffect(() => {
+    const token = getToken();
+    if (token) setAuthedUser('owner');
+
+    loadRecipes().then(r => {
+      setRecipes(r);
+      setSelectedId(r[0]?.id);
+      setLoading(false);
+    });
+  }, []);
+
+  const recipe = useMemo(() => recipes.find(r => r.id === selectedId) || recipes[0], [recipes, selectedId]);
 
   const scale = useMemo(() => {
     if (overrideIndex !== null && overrideValue !== null) {
@@ -54,6 +72,23 @@ export default function App() {
       mgMg:  mgmal * MOLAR_RATIOS.Mg * 1000,
     };
   }, [computed, effectiveServings, totalWeight]);
+
+  // Persist recipes to localStorage + Gist
+  const persistRecipes = useCallback(async (next) => {
+    saveToLocal(next);
+    const token = getToken();
+    if (token) {
+      setSyncStatus('syncing');
+      try {
+        await saveToGist(token, next);
+        setSyncStatus('synced');
+        setTimeout(() => setSyncStatus('idle'), 2000);
+      } catch (_) {
+        setSyncStatus('error');
+        setTimeout(() => setSyncStatus('idle'), 3000);
+      }
+    }
+  }, []);
 
   const selectRecipe = useCallback((id) => {
     setSelectedId(id);
@@ -102,34 +137,58 @@ export default function App() {
     setOverrideValue(null);
   }, []);
 
-  const handleSaveRecipe = useCallback((saved) => {
+  const handleSaveRecipe = useCallback(async (saved) => {
     setRecipes(prev => {
       const exists = prev.find(r => r.id === saved.id);
       const next = exists
         ? prev.map(r => r.id === saved.id ? saved : r)
         : [...prev, saved];
-      saveRecipes(next);
+      persistRecipes(next);
       return next;
     });
     setSelectedId(saved.id);
     setModal(null);
     setOverrideIndex(null);
     setOverrideValue(null);
-  }, []);
+  }, [persistRecipes]);
 
-  const handleDeleteRecipe = useCallback((id) => {
+  const handleDeleteRecipe = useCallback(async (id) => {
     setRecipes(prev => {
       const next = prev.filter(r => r.id !== id);
-      saveRecipes(next);
+      persistRecipes(next);
       return next;
     });
-    setSelectedId(recipes.find(r => r.id !== id)?.id);
+    setSelectedId(prev => recipes.find(r => r.id !== id)?.id);
     setModal(null);
+  }, [recipes, persistRecipes]);
+
+  const handleAuth = useCallback((login) => {
+    setAuthedUser(login);
+    setShowAuth(false);
+    // Immediately sync current recipes to gist
+    const token = getToken();
+    if (token) {
+      setSyncStatus('syncing');
+      saveToGist(token, recipes)
+        .then(gistId => { setSyncStatus('synced'); setTimeout(() => setSyncStatus('idle'), 2000); })
+        .catch(() => { setSyncStatus('error'); setTimeout(() => setSyncStatus('idle'), 3000); });
+    }
   }, [recipes]);
 
   const PRESETS = [5, 10, 40];
   const isPresetActive = (n) => overrideIndex === null && servings === n && !customServings;
-  const ac = recipe.accent;
+  const ac = recipe?.accent || '#7A3A0F';
+  const isAuthed = !!authedUser;
+
+  if (loading) {
+    return (
+      <div style={{ ...s.root, display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '100vh' }}>
+        <span style={{ fontFamily: "'DM Mono', monospace", fontSize: 12, color: '#A89E8A', letterSpacing: 2 }}>
+          LOADING…
+        </span>
+      </div>
+    );
+  }
 
   return (
     <div style={s.root}>
@@ -140,6 +199,19 @@ export default function App() {
           <span style={s.headerSub}>Electrolyte Calculator</span>
         </div>
         <div style={s.headerRight}>
+          {/* Sync status + lock */}
+          <div style={s.headerControls}>
+            {syncStatus === 'syncing' && <span style={s.syncLabel}>syncing…</span>}
+            {syncStatus === 'synced'  && <span style={{ ...s.syncLabel, color: '#7A9A6A' }}>synced ✓</span>}
+            {syncStatus === 'error'   && <span style={{ ...s.syncLabel, color: '#9A5A4A' }}>sync failed</span>}
+            <button
+              style={s.lockBtn}
+              onClick={() => setShowAuth(true)}
+              title={isAuthed ? 'Editing unlocked — click to manage token' : 'Click to unlock editing'}
+            >
+              {isAuthed ? '🔓' : '🔒'}
+            </button>
+          </div>
           <span style={s.headerSubRight}>Active batch</span>
           <div>
             <span style={s.servingBig}>
@@ -159,10 +231,7 @@ export default function App() {
             <div
               key={r.id}
               onClick={() => selectRecipe(r.id)}
-              style={{
-                ...s.recipeCard,
-                ...(r.id !== selectedId ? s.recipeCardDim : {}),
-              }}
+              style={{ ...s.recipeCard, ...(r.id !== selectedId ? s.recipeCardDim : {}) }}
             >
               <div style={{ ...s.recipeCardBar, background: r.accent, opacity: r.id === selectedId ? 1 : 0.4 }} />
               <span style={s.rcName}>{r.name}</span>
@@ -170,18 +239,20 @@ export default function App() {
                 <div style={{ ...s.rcDot, background: r.accent }} />
                 {r.ingredients.length} ingredients
               </div>
-              <button
-                style={s.rcEditBtn}
-                onClick={(e) => { e.stopPropagation(); setModal({ mode: 'edit', recipe: r }); }}
-                title="Edit recipe"
-              >
-                ✎
-              </button>
+              {isAuthed && (
+                <button
+                  style={s.rcEditBtn}
+                  onClick={(e) => { e.stopPropagation(); setModal({ mode: 'edit', recipe: r }); }}
+                  title="Edit recipe"
+                >✎</button>
+              )}
             </div>
           ))}
-          <div style={s.addCard} onClick={() => setModal({ mode: 'new' })}>
-            <span style={s.addPlus}>+</span> New recipe
-          </div>
+          {isAuthed && (
+            <div style={s.addCard} onClick={() => setModal({ mode: 'new' })}>
+              <span style={s.addPlus}>+</span> New recipe
+            </div>
+          )}
         </div>
 
         {/* Servings */}
@@ -234,16 +305,13 @@ export default function App() {
                 key={i}
                 style={{
                   ...s.tableRow,
-                  ...(ing.isOverridden
-                    ? { background: accentAlpha(ac, 0.08), borderLeft: `3px solid ${ac}` }
-                    : {}),
+                  ...(ing.isOverridden ? { background: accentAlpha(ac, 0.08), borderLeft: `3px solid ${ac}` } : {}),
                 }}
               >
                 <span style={s.ingName}>
                   {ing.name}
                   {ing.isBase && <span style={s.baseTag}>base</span>}
                 </span>
-
                 <div
                   style={{ width: 70, textAlign: 'right', cursor: 'pointer' }}
                   onClick={() => !isEditing && startEdit(i)}
@@ -257,10 +325,7 @@ export default function App() {
                       value={editText}
                       onChange={e => setEditText(e.target.value)}
                       onBlur={() => commitEdit(i)}
-                      onKeyDown={e => {
-                        if (e.key === 'Enter') commitEdit(i);
-                        if (e.key === 'Escape') cancelEdit();
-                      }}
+                      onKeyDown={e => { if (e.key === 'Enter') commitEdit(i); if (e.key === 'Escape') cancelEdit(); }}
                       style={{ ...s.cellInput, borderColor: ac }}
                     />
                   ) : (
@@ -269,11 +334,7 @@ export default function App() {
                     </span>
                   )}
                 </div>
-
-                <span style={{ ...s.pctVal, width: 46, textAlign: 'right' }}>
-                  {pct.toFixed(1)}%
-                </span>
-
+                <span style={{ ...s.pctVal, width: 46, textAlign: 'right' }}>{pct.toFixed(1)}%</span>
                 <div style={s.barTrack}>
                   <div style={{
                     ...s.barFill,
@@ -287,12 +348,8 @@ export default function App() {
           })}
 
           <div style={s.totalRow}>
-            <span style={{ flex: 1, fontFamily: "'DM Mono', monospace", fontSize: 10, letterSpacing: 2, textTransform: 'uppercase', color: 'rgba(245,240,228,0.45)' }}>
-              Total
-            </span>
-            <span style={{ fontFamily: "'DM Mono', monospace", fontSize: 14, color: '#F5F0E4' }}>
-              {formatGrams(totalWeight)}g
-            </span>
+            <span style={{ flex: 1, fontFamily: "'DM Mono', monospace", fontSize: 10, letterSpacing: 2, textTransform: 'uppercase', color: 'rgba(245,240,228,0.45)' }}>Total</span>
+            <span style={{ fontFamily: "'DM Mono', monospace", fontSize: 14, color: '#F5F0E4' }}>{formatGrams(totalWeight)}g</span>
             <span style={{ width: 46 }} />
           </div>
         </div>
@@ -302,18 +359,9 @@ export default function App() {
           <div style={s.panel}>
             <span style={s.panelTitle}>Per serving</span>
             <div style={s.pRows}>
-              <div style={s.pRow}>
-                <span style={s.pLabel}>Sodium Chloride</span>
-                <span style={s.pVal}>{perServing.nacl.toFixed(3)}g</span>
-              </div>
-              <div style={s.pRow}>
-                <span style={s.pLabel}>Potassium Chloride</span>
-                <span style={s.pVal}>{perServing.kcl.toFixed(3)}g</span>
-              </div>
-              <div style={s.pRow}>
-                <span style={s.pLabel}>Magnesium Malate</span>
-                <span style={s.pVal}>{perServing.mgmal.toFixed(3)}g</span>
-              </div>
+              <div style={s.pRow}><span style={s.pLabel}>Sodium Chloride</span><span style={s.pVal}>{perServing.nacl.toFixed(3)}g</span></div>
+              <div style={s.pRow}><span style={s.pLabel}>Potassium Chloride</span><span style={s.pVal}>{perServing.kcl.toFixed(3)}g</span></div>
+              <div style={s.pRow}><span style={s.pLabel}>Magnesium Malate</span><span style={s.pVal}>{perServing.mgmal.toFixed(3)}g</span></div>
               <div style={{ ...s.pRow, borderTop: '1px solid rgba(60,45,20,0.1)', paddingTop: 7, marginTop: 4 }}>
                 <span style={{ ...s.pLabel, color: '#1E1A12', fontSize: 13 }}>Serving total</span>
                 <span style={{ ...s.pVal, fontSize: 15 }}>{formatGrams(perServing.total)}g</span>
@@ -355,6 +403,7 @@ export default function App() {
         </div>
       </div>
 
+      {/* Modals */}
       {modal && (
         <RecipeModal
           mode={modal.mode}
@@ -362,6 +411,12 @@ export default function App() {
           onSave={handleSaveRecipe}
           onDelete={handleDeleteRecipe}
           onClose={() => setModal(null)}
+        />
+      )}
+      {showAuth && (
+        <AuthModal
+          onAuth={handleAuth}
+          onClose={() => setShowAuth(false)}
         />
       )}
     </div>
@@ -376,382 +431,154 @@ function accentAlpha(hex, alpha) {
 }
 
 const s = {
-  root: {
-    minHeight: '100vh',
-    background: '#EEE9DF',
-    maxWidth: 640,
-    margin: '0 auto',
-  },
+  root: { minHeight: '100vh', background: '#EEE9DF', maxWidth: 640, margin: '0 auto' },
   header: {
-    background: '#2C2518',
-    padding: '16px 20px 14px',
-    display: 'flex',
-    alignItems: 'flex-end',
-    justifyContent: 'space-between',
+    background: '#2C2518', padding: '16px 20px 14px',
+    display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between',
   },
   wordmark: {
     fontFamily: "'Bungee Shade', sans-serif",
-    fontSize: 48,
-    color: '#C8853A',
-    letterSpacing: 2,
-    lineHeight: 1,
-    fontWeight: 400,
+    fontSize: 48, color: '#C8853A', letterSpacing: 2, lineHeight: 1, fontWeight: 400,
   },
   headerSub: {
-    display: 'block',
-    fontFamily: "'DM Mono', monospace",
-    fontSize: 8,
-    letterSpacing: '2.5px',
-    textTransform: 'uppercase',
-    color: 'rgba(245,240,228,0.3)',
-    marginTop: 4,
+    display: 'block', fontFamily: "'DM Mono', monospace",
+    fontSize: 8, letterSpacing: '2.5px', textTransform: 'uppercase',
+    color: 'rgba(245,240,228,0.3)', marginTop: 4,
   },
-  headerRight: {
-    textAlign: 'right',
+  headerRight: { textAlign: 'right' },
+  headerControls: {
+    display: 'flex', alignItems: 'center', justifyContent: 'flex-end',
+    gap: 8, marginBottom: 4,
+  },
+  syncLabel: {
+    fontFamily: "'DM Mono', monospace", fontSize: 9,
+    letterSpacing: '1px', color: 'rgba(245,240,228,0.4)',
+  },
+  lockBtn: {
+    background: 'transparent', border: 'none',
+    fontSize: 16, cursor: 'pointer', padding: 0, lineHeight: 1,
+    opacity: 0.7,
   },
   headerSubRight: {
-    fontFamily: "'DM Mono', monospace",
-    fontSize: 8,
-    letterSpacing: '2.5px',
-    textTransform: 'uppercase',
-    color: 'rgba(245,240,228,0.3)',
-    display: 'block',
-    marginBottom: 3,
+    fontFamily: "'DM Mono', monospace", fontSize: 8,
+    letterSpacing: '2.5px', textTransform: 'uppercase',
+    color: 'rgba(245,240,228,0.3)', display: 'block', marginBottom: 3,
   },
   servingBig: {
-    fontFamily: "'DM Mono', monospace",
-    fontSize: 26,
-    fontWeight: 500,
-    lineHeight: 1,
-    color: '#C8853A',
+    fontFamily: "'DM Mono', monospace", fontSize: 26,
+    fontWeight: 500, lineHeight: 1, color: '#C8853A',
   },
   servingUnit: {
-    fontFamily: "'DM Mono', monospace",
-    fontSize: 10,
+    fontFamily: "'DM Mono', monospace", fontSize: 10,
     color: 'rgba(245,240,228,0.35)',
   },
-  body: {
-    padding: '16px 18px 32px',
-  },
+  body: { padding: '16px 18px 32px' },
   sectionLabel: {
-    display: 'block',
-    fontFamily: "'DM Mono', monospace",
-    fontSize: 8,
-    letterSpacing: '2.5px',
-    textTransform: 'uppercase',
-    color: '#A89E8A',
-    marginBottom: 9,
+    display: 'block', fontFamily: "'DM Mono', monospace",
+    fontSize: 8, letterSpacing: '2.5px', textTransform: 'uppercase',
+    color: '#A89E8A', marginBottom: 9,
   },
-  shelf: {
-    display: 'grid',
-    gridTemplateColumns: 'repeat(3, 1fr)',
-    gap: 7,
-    marginBottom: 20,
-  },
+  shelf: { display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 7, marginBottom: 20 },
   recipeCard: {
-    background: '#FFFCF5',
-    border: '1px solid rgba(60,45,20,0.13)',
-    borderRadius: 7,
-    padding: '10px 10px 8px',
-    cursor: 'pointer',
-    position: 'relative',
-    overflow: 'hidden',
-    userSelect: 'none',
+    background: '#FFFCF5', border: '1px solid rgba(60,45,20,0.13)',
+    borderRadius: 7, padding: '10px 10px 8px',
+    cursor: 'pointer', position: 'relative', overflow: 'hidden', userSelect: 'none',
   },
-  recipeCardDim: {
-    background: '#E5DFD3',
-  },
-  recipeCardBar: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    height: 3,
-  },
-  rcName: {
-    fontSize: 12,
-    fontWeight: 700,
-    color: '#1E1A12',
-    display: 'block',
-    marginBottom: 2,
-    paddingRight: 18,
-  },
-  rcMeta: {
-    fontFamily: "'DM Mono', monospace",
-    fontSize: 9,
-    color: '#A89E8A',
-    display: 'flex',
-    alignItems: 'center',
-    gap: 4,
-  },
-  rcDot: {
-    width: 5,
-    height: 5,
-    borderRadius: '50%',
-    opacity: 0.7,
-    flexShrink: 0,
-  },
+  recipeCardDim: { background: '#E5DFD3' },
+  recipeCardBar: { position: 'absolute', top: 0, left: 0, right: 0, height: 3 },
+  rcName: { fontSize: 12, fontWeight: 700, color: '#1E1A12', display: 'block', marginBottom: 2, paddingRight: 18 },
+  rcMeta: { fontFamily: "'DM Mono', monospace", fontSize: 9, color: '#A89E8A', display: 'flex', alignItems: 'center', gap: 4 },
+  rcDot: { width: 5, height: 5, borderRadius: '50%', opacity: 0.7, flexShrink: 0 },
   rcEditBtn: {
-    position: 'absolute',
-    top: 7,
-    right: 7,
-    width: 20,
-    height: 20,
-    background: 'transparent',
-    border: 'none',
-    color: '#A89E8A',
-    fontSize: 13,
-    cursor: 'pointer',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderRadius: 3,
-    padding: 0,
+    position: 'absolute', top: 7, right: 7, width: 20, height: 20,
+    background: 'transparent', border: 'none', color: '#A89E8A',
+    fontSize: 13, cursor: 'pointer', display: 'flex',
+    alignItems: 'center', justifyContent: 'center', borderRadius: 3, padding: 0,
   },
   addCard: {
-    border: '1px dashed rgba(60,45,20,0.25)',
-    borderRadius: 7,
-    padding: '10px 10px 8px',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 5,
-    color: '#A89E8A',
-    fontSize: 11,
-    fontWeight: 600,
-    cursor: 'pointer',
-    userSelect: 'none',
+    border: '1px dashed rgba(60,45,20,0.25)', borderRadius: 7,
+    padding: '10px 10px 8px', display: 'flex', alignItems: 'center',
+    justifyContent: 'center', gap: 5, color: '#A89E8A',
+    fontSize: 11, fontWeight: 600, cursor: 'pointer', userSelect: 'none',
   },
-  addPlus: {
-    fontSize: 15,
-    fontWeight: 400,
-    lineHeight: 1,
-  },
-  servRow: {
-    display: 'flex',
-    gap: 6,
-    alignItems: 'center',
-    marginBottom: 12,
-    flexWrap: 'wrap',
-  },
+  addPlus: { fontSize: 15, fontWeight: 400, lineHeight: 1 },
+  servRow: { display: 'flex', gap: 6, alignItems: 'center', marginBottom: 12, flexWrap: 'wrap' },
   servBtn: {
-    height: 36,
-    minWidth: 50,
-    border: '1px solid rgba(60,45,20,0.22)',
-    borderRadius: 5,
-    background: '#F5F1E8',
-    fontFamily: "'DM Mono', monospace",
-    fontSize: 14,
-    fontWeight: 500,
-    color: '#7A7060',
-    cursor: 'pointer',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
+    height: 36, minWidth: 50, border: '1px solid rgba(60,45,20,0.22)',
+    borderRadius: 5, background: '#F5F1E8',
+    fontFamily: "'DM Mono', monospace", fontSize: 14, fontWeight: 500,
+    color: '#7A7060', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
   },
   customInput: {
-    height: 36,
-    width: 80,
-    border: '1px solid rgba(60,45,20,0.22)',
-    borderRadius: 5,
-    background: '#F5F1E8',
-    fontFamily: "'DM Mono', monospace",
-    fontSize: 13,
-    color: '#1E1A12',
-    textAlign: 'center',
-    outline: 'none',
-    padding: '0 6px',
+    height: 36, width: 80, border: '1px solid rgba(60,45,20,0.22)',
+    borderRadius: 5, background: '#F5F1E8',
+    fontFamily: "'DM Mono', monospace", fontSize: 13,
+    color: '#1E1A12', textAlign: 'center', outline: 'none', padding: '0 6px',
   },
   overrideBanner: {
-    marginBottom: 12,
-    padding: '9px 13px',
-    background: '#F5F1E8',
-    border: '1px solid rgba(60,45,20,0.18)',
-    borderRadius: 7,
-    fontSize: 12,
-    color: '#7A7060',
-    lineHeight: 1.6,
+    marginBottom: 12, padding: '9px 13px', background: '#F5F1E8',
+    border: '1px solid rgba(60,45,20,0.18)', borderRadius: 7,
+    fontSize: 12, color: '#7A7060', lineHeight: 1.6,
   },
   clearBtn: {
-    marginLeft: 10,
-    padding: '2px 10px',
-    background: 'transparent',
-    border: '1px solid rgba(60,45,20,0.3)',
-    borderRadius: 4,
-    color: '#7A7060',
-    cursor: 'pointer',
-    fontSize: 11,
+    marginLeft: 10, padding: '2px 10px', background: 'transparent',
+    border: '1px solid rgba(60,45,20,0.3)', borderRadius: 4,
+    color: '#7A7060', cursor: 'pointer', fontSize: 11,
   },
   table: {
-    background: '#FFFCF5',
-    border: '1px solid rgba(60,45,20,0.13)',
-    borderRadius: 8,
-    overflow: 'hidden',
-    marginBottom: 14,
+    background: '#FFFCF5', border: '1px solid rgba(60,45,20,0.13)',
+    borderRadius: 8, overflow: 'hidden', marginBottom: 14,
   },
   tableHead: {
-    display: 'flex',
-    padding: '7px 14px',
-    background: '#E5DFD3',
+    display: 'flex', padding: '7px 14px', background: '#E5DFD3',
     borderBottom: '1px solid rgba(60,45,20,0.13)',
-    fontFamily: "'DM Mono', monospace",
-    fontSize: 8,
-    letterSpacing: '2px',
-    textTransform: 'uppercase',
-    color: '#A89E8A',
+    fontFamily: "'DM Mono', monospace", fontSize: 8, letterSpacing: '2px',
+    textTransform: 'uppercase', color: '#A89E8A',
   },
   tableRow: {
-    display: 'flex',
-    alignItems: 'center',
-    padding: '11px 14px',
+    display: 'flex', alignItems: 'center', padding: '11px 14px',
     borderTop: '1px solid rgba(60,45,20,0.09)',
-    position: 'relative',
-    overflow: 'hidden',
-    borderLeft: '3px solid transparent',
+    position: 'relative', overflow: 'hidden', borderLeft: '3px solid transparent',
   },
-  ingName: {
-    flex: 1,
-    fontSize: 13,
-    fontWeight: 600,
-    color: '#1E1A12',
-  },
+  ingName: { flex: 1, fontSize: 13, fontWeight: 600, color: '#1E1A12' },
   baseTag: {
-    fontSize: 7,
-    fontFamily: "'DM Mono', monospace",
-    letterSpacing: '1px',
-    background: '#E5DFD3',
-    color: '#A89E8A',
-    padding: '1px 5px',
-    borderRadius: 2,
-    marginLeft: 6,
-    textTransform: 'uppercase',
-    verticalAlign: 'middle',
+    fontSize: 7, fontFamily: "'DM Mono', monospace", letterSpacing: '1px',
+    background: '#E5DFD3', color: '#A89E8A', padding: '1px 5px',
+    borderRadius: 2, marginLeft: 6, textTransform: 'uppercase', verticalAlign: 'middle',
   },
-  gramVal: {
-    fontFamily: "'DM Mono', monospace",
-    fontSize: 14,
-    fontWeight: 500,
-    color: '#2C2518',
-  },
-  pctVal: {
-    fontFamily: "'DM Mono', monospace",
-    fontSize: 10,
-    color: '#A89E8A',
-  },
+  gramVal: { fontFamily: "'DM Mono', monospace", fontSize: 14, fontWeight: 500, color: '#2C2518' },
+  pctVal: { fontFamily: "'DM Mono', monospace", fontSize: 10, color: '#A89E8A' },
   cellInput: {
-    width: 70,
-    textAlign: 'right',
-    background: '#F5F1E8',
-    border: '1.5px solid',
-    borderRadius: 4,
-    color: '#1E1A12',
-    fontSize: 13,
-    fontFamily: "'DM Mono', monospace",
-    padding: '3px 6px',
-    outline: 'none',
+    width: 70, textAlign: 'right', background: '#F5F1E8',
+    border: '1.5px solid', borderRadius: 4, color: '#1E1A12',
+    fontSize: 13, fontFamily: "'DM Mono', monospace", padding: '3px 6px', outline: 'none',
   },
-  barTrack: {
-    position: 'absolute',
-    bottom: 0,
-    left: 0,
-    right: 0,
-    height: 2,
-  },
-  barFill: {
-    height: '100%',
-    transition: 'width 0.3s ease',
-    borderRadius: 1,
-  },
-  totalRow: {
-    display: 'flex',
-    alignItems: 'center',
-    padding: '10px 14px',
-    background: '#2C2518',
-  },
-  twoCols: {
-    display: 'grid',
-    gridTemplateColumns: '1fr 1fr',
-    gap: 10,
-    marginBottom: 16,
-  },
+  barTrack: { position: 'absolute', bottom: 0, left: 0, right: 0, height: 2 },
+  barFill: { height: '100%', transition: 'width 0.3s ease', borderRadius: 1 },
+  totalRow: { display: 'flex', alignItems: 'center', padding: '10px 14px', background: '#2C2518' },
+  twoCols: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 16 },
   panel: {
-    background: '#FFFCF5',
-    border: '1px solid rgba(60,45,20,0.13)',
-    borderRadius: 8,
-    padding: '12px 14px',
+    background: '#FFFCF5', border: '1px solid rgba(60,45,20,0.13)',
+    borderRadius: 8, padding: '12px 14px',
   },
   panelTitle: {
-    display: 'block',
-    fontFamily: "'DM Mono', monospace",
-    fontSize: 8,
-    letterSpacing: '2.5px',
-    textTransform: 'uppercase',
-    color: '#A89E8A',
-    marginBottom: 10,
+    display: 'block', fontFamily: "'DM Mono', monospace", fontSize: 8,
+    letterSpacing: '2.5px', textTransform: 'uppercase', color: '#A89E8A', marginBottom: 10,
   },
-  pRows: {
-    display: 'flex',
-    flexDirection: 'column',
-    gap: 6,
-  },
-  pRow: {
-    display: 'flex',
-    justifyContent: 'space-between',
-    alignItems: 'baseline',
-  },
-  pLabel: {
-    fontSize: 11,
-    fontWeight: 600,
-    color: '#7A7060',
-  },
-  pVal: {
-    fontFamily: "'DM Mono', monospace",
-    fontSize: 13,
-    color: '#2C2518',
-  },
-  eRows: {
-    display: 'flex',
-    flexDirection: 'column',
-    gap: 7,
-  },
+  pRows: { display: 'flex', flexDirection: 'column', gap: 6 },
+  pRow: { display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' },
+  pLabel: { fontSize: 11, fontWeight: 600, color: '#7A7060' },
+  pVal: { fontFamily: "'DM Mono', monospace", fontSize: 13, color: '#2C2518' },
+  eRows: { display: 'flex', flexDirection: 'column', gap: 7 },
   eRow: {},
-  eTop: {
-    display: 'flex',
-    justifyContent: 'space-between',
-    alignItems: 'baseline',
-    marginBottom: 3,
-  },
-  eName: {
-    fontSize: 11,
-    fontWeight: 600,
-    color: '#7A7060',
-  },
-  eVal: {
-    fontFamily: "'DM Mono', monospace",
-    fontSize: 13,
-    color: '#2C2518',
-  },
-  eUnit: {
-    fontFamily: "'DM Mono', monospace",
-    fontSize: 9,
-    color: '#A89E8A',
-  },
-  eTrack: {
-    height: 3,
-    background: '#E5DFD3',
-    borderRadius: 2,
-    overflow: 'hidden',
-  },
-  eFill: {
-    height: '100%',
-    borderRadius: 2,
-  },
+  eTop: { display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 3 },
+  eName: { fontSize: 11, fontWeight: 600, color: '#7A7060' },
+  eVal: { fontFamily: "'DM Mono', monospace", fontSize: 13, color: '#2C2518' },
+  eUnit: { fontFamily: "'DM Mono', monospace", fontSize: 9, color: '#A89E8A' },
+  eTrack: { height: 3, background: '#E5DFD3', borderRadius: 2, overflow: 'hidden' },
+  eFill: { height: '100%', borderRadius: 2 },
   footerHint: {
-    fontFamily: "'DM Mono', monospace",
-    fontSize: 9,
-    color: '#A89E8A',
-    lineHeight: 1.7,
-    textAlign: 'center',
-    letterSpacing: '0.5px',
+    fontFamily: "'DM Mono', monospace", fontSize: 9, color: '#A89E8A',
+    lineHeight: 1.7, textAlign: 'center', letterSpacing: '0.5px',
   },
 };
