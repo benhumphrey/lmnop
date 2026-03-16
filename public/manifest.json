@@ -1,0 +1,21 @@
+{
+  "name": "LMNOP",
+  "short_name": "LMNOP",
+  "description": "Electrolyte recipe calculator",
+  "start_url": "/lmnop/",
+  "display": "standalone",
+  "background_color": "#EEE9DF",
+  "theme_color": "#2C2518",
+  "icons": [
+    {
+      "src": "/lmnop/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "/lmnop/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}
