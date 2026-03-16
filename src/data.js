@@ -1,34 +1,33 @@
 import { loadFromGist, getGistId } from './gist.js';
 
 export const PALETTE = [
-  '#b47e64', // Terra
-  '#b88347', // Amber
-  '#b69e3e', // Ochre
-  '#7ca456', // Olive
-  '#45927c', // Teal
-  '#567cb8', // Slate blue
-  '#7f6ab9', // Lavender
-  '#a85d95', // Plum
-  '#b85670', // Rose
-  '#b95b5b', // Brick
-  '#7c9268', // Sage
-  '#458796', // Cerulean
-  '#8a769e', // Grape
-  '#a07946', // Caramel
-  '#c96e54', // Grapefruit
-  '#86a046', // Citrus
-  '#427065', // Spearmint
-  '#76809e', // Steel
-  '#8e677a', // Berry
-  '#777f66', // Fern
-  '#9e6357', // Salmon
+  '#D46E72', // Watermelon
+  '#C85468', // Strawberry
+  '#B85070', // Raspberry
+  '#D98B50', // Peach
+  '#DC7048', // Grapefruit
+  '#D46030', // Blood Orange
+  '#C8B84A', // Yuzu
+  '#BEA83C', // Lemon
+  '#A89030', // Turmeric
+  '#85BA68', // Kiwi
+  '#6AAA50', // Honeydew
+  '#5A9860', // Cucumber
+  '#62A8A8', // Coconut
+  '#4A9898', // Spearmint
+  '#5888B8', // Blueberry
+  '#6E88C4', // Acai
+  '#8870B8', // Lavender
+  '#B07EAC', // Blackberry
+  '#C088A0', // Lychee
+  '#B87888', // Hibiscus
 ];
 
 export const DEFAULT_RECIPES = [
   {
     id: 'sour-grape',
     name: 'Sour Grape',
-    accent: '#8a769e',
+    accent: '#B07EAC', // Blackberry
     ingredients: [
       { name: 'Sodium Chloride',    grams40: 100.0, isBase: true },
       { name: 'Potassium Chloride', grams40: 15.4,  isBase: true },
@@ -42,11 +41,11 @@ export const DEFAULT_RECIPES = [
   {
     id: 'grapefruit',
     name: 'Grapefruit',
-    accent: '#c96e54',
+    accent: '#DC7048', // Grapefruit
     ingredients: [
-      { name: 'Sodium Chloride',    grams40: 100.0,  isBase: true },
-      { name: 'Potassium Chloride', grams40: 15.32,  isBase: true },
-      { name: 'Magnesium Malate',   grams40: 15.6,   isBase: true },
+      { name: 'Sodium Chloride',    grams40: 100.0, isBase: true },
+      { name: 'Potassium Chloride', grams40: 15.32, isBase: true },
+      { name: 'Magnesium Malate',   grams40: 15.6,  isBase: true },
       { name: 'Grapefruit Powder',  grams40: 160.0 },
       { name: 'Citric Acid',        grams40: 60.0 },
       { name: 'Stevia',             grams40: 3.84 },
@@ -55,7 +54,7 @@ export const DEFAULT_RECIPES = [
   {
     id: 'lemon',
     name: 'Lemon',
-    accent: '#b69e3e',
+    accent: '#BEA83C', // Lemon
     ingredients: [
       { name: 'Sodium Chloride',     grams40: 100.0, isBase: true },
       { name: 'Potassium Chloride',  grams40: 15.32, isBase: true },
